@@ -100,6 +100,7 @@ interface Advertisement {
   description: string | null;
   url: string;
   company: string | null;
+  fileType?: string;
 }
 
 interface VideoShowcase {
@@ -327,25 +328,40 @@ export default function HomePage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Handle video end event for billboard
-  const handleAdVideoEnd = () => {
+  // Handle ad end event for billboard (both video end and image timer)
+  const handleAdEnd = () => {
     if (ads.length > 1) {
       setCurrentAdIndex((prev) => (prev + 1) % ads.length);
     }
   };
 
-  // Play video when index changes
+  // Auto-rotate images every 5 seconds
   useEffect(() => {
-    if (videoRefs.current[currentAdIndex]) {
+    if (ads.length <= 1) return;
+
+    const currentAd = ads[currentAdIndex];
+    if (currentAd?.fileType === 'image') {
+      const timer = setTimeout(() => {
+        handleAdEnd();
+      }, 5000); // 5 seconds for images
+
+      return () => clearTimeout(timer);
+    }
+  }, [currentAdIndex, ads]);
+
+  // Play video when index changes (only for videos)
+  useEffect(() => {
+    const currentAd = ads[currentAdIndex];
+    if (currentAd?.fileType === 'video' && videoRefs.current[currentAdIndex]) {
       videoRefs.current[currentAdIndex].play().catch(err => {
         console.log('Auto-play prevented:', err);
       });
     }
-  }, [currentAdIndex, ads.length]);
+  }, [currentAdIndex, ads]);
 
-  // Play first video when ads are loaded
+  // Play first video when ads are loaded (only for videos)
   useEffect(() => {
-    if (ads.length > 0 && videoRefs.current[0]) {
+    if (ads.length > 0 && ads[0]?.fileType === 'video' && videoRefs.current[0]) {
       videoRefs.current[0].play().catch(err => {
         console.log('Auto-play prevented:', err);
       });
@@ -549,25 +565,23 @@ export default function HomePage() {
                       index === currentAdIndex ? 'opacity-100' : 'opacity-0'
                     }`}
                   >
-                    <video
-                      ref={(el) => (videoRefs.current[index] = el)}
-                      src={ad.url}
-                      autoPlay={index === currentAdIndex}
-                      muted
-                      playsInline
-                      className="w-full h-full object-cover"
-                      onEnded={index === currentAdIndex ? handleAdVideoEnd : undefined}
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-                    <div className="absolute bottom-0 left-0 right-0 p-6">
-                      <h3 className="text-2xl font-bold text-white mb-2">{ad.title}</h3>
-                      {ad.company && (
-                        <p className="text-gold font-medium mb-1">{ad.company}</p>
-                      )}
-                      {ad.description && (
-                        <p className="text-white/80 text-sm">{ad.description}</p>
-                      )}
-                    </div>
+                    {ad.fileType === 'image' ? (
+                      <img
+                        src={ad.url}
+                        alt={ad.title}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <video
+                        ref={(el) => (videoRefs.current[index] = el)}
+                        src={ad.url}
+                        autoPlay={index === currentAdIndex}
+                        muted
+                        playsInline
+                        className="w-full h-full object-cover"
+                        onEnded={index === currentAdIndex ? handleAdEnd : undefined}
+                      />
+                    )}
                   </div>
                 ))
               ) : (

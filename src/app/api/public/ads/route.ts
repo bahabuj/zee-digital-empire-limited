@@ -3,13 +3,9 @@ import { db } from '@/lib/db';
 
 export async function GET(request: NextRequest) {
   try {
-    const now = new Date();
-
     const ads = await db.advertisement.findMany({
       where: {
-        isActive: true,
-        startDate: { lte: now },
-        endDate: { gte: now }
+        isActive: true
       },
       orderBy: { priority: 'desc' }
     });

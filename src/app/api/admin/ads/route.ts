@@ -28,13 +28,22 @@ export async function POST(request: NextRequest) {
     const title = formData.get('title') as string;
     const description = formData.get('description') as string;
     const company = formData.get('company') as string;
-    const startDate = formData.get('startDate') as string;
-    const endDate = formData.get('endDate') as string;
     const priority = parseInt(formData.get('priority') as string) || 0;
 
-    if (!file || !startDate || !endDate) {
+    if (!file) {
       return NextResponse.json(
-        { error: 'File, startDate, and endDate are required' },
+        { error: 'File is required' },
+        { status: 400 }
+      );
+    }
+
+    // Check if file is either image or video
+    const fileType = file.type.startsWith('image/') ? 'image' :
+                    file.type.startsWith('video/') ? 'video' : null;
+
+    if (!fileType) {
+      return NextResponse.json(
+        { error: 'File must be an image or video' },
         { status: 400 }
       );
     }
@@ -43,7 +52,7 @@ export async function POST(request: NextRequest) {
     const existingAds = await db.advertisement.count();
     if (existingAds >= 7) {
       return NextResponse.json(
-        { error: 'Billboard can only contain up to 7 videos. Please delete some videos first.' },
+        { error: 'Billboard can only contain up to 7 items. Please delete some first.' },
         { status: 400 }
       );
     }
@@ -66,7 +75,7 @@ export async function POST(request: NextRequest) {
     const filename = `${timestamp}-${file.name}`;
     const filepath = path.join(uploadsDir, filename);
 
-    // Save file using stream for better performance
+    // Save file
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     await writeFile(filepath, buffer);
@@ -74,7 +83,11 @@ export async function POST(request: NextRequest) {
     // Generate default title if not provided
     const adTitle = title || `Advertisement ${existingAds + 1}`;
 
-    // Create ad record in database
+    // Create ad record in database (set dates to far past/future to always show)
+    const now = new Date();
+    const farPast = new Date(now.getFullYear() - 10, 0, 1); // 10 years ago
+    const farFuture = new Date(now.getFullYear() + 10, 11, 31); // 10 years from now
+
     const ad = await db.advertisement.create({
       data: {
         title: adTitle,
@@ -82,9 +95,10 @@ export async function POST(request: NextRequest) {
         filename,
         url: `/uploads/ads/${filename}`,
         company: company || null,
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
+        startDate: farPast,
+        endDate: farFuture,
         priority,
+        fileType,
         isActive: true
       }
     });
