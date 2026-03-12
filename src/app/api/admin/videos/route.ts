@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { writeFile, mkdir } from 'fs/promises';
-import path from 'path';
+import { put } from '@vercel/blob';
 
 // GET - List all videos
 export async function GET() {
@@ -37,36 +36,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check file size (max 10MB)
-    const maxSize = 10 * 1024 * 1024; // 10MB in bytes
+    // Client-side file size check (4.5MB for Vercel free tier)
+    const maxSize = 4.5 * 1024 * 1024; // 4.5MB for Vercel free tier
     if (file.size > maxSize) {
       return NextResponse.json(
-        { error: `File size exceeds 10MB limit. Your file is ${(file.size / (1024 * 1024)).toFixed(2)}MB` },
-        { status: 400 }
+        { error: `File size exceeds 4.5MB Vercel limit. Your file is ${(file.size / (1024 * 1024)).toFixed(2)}MB. Please use a smaller file or upgrade to Vercel Pro.` },
+        { status: 413 }
       );
     }
 
-    // Create uploads directory if it doesn't exist
-    const uploadsDir = path.join(process.cwd(), 'public', 'uploads', 'videos');
-    await mkdir(uploadsDir, { recursive: true });
-
-    // Generate unique filename
+    // Upload to Vercel Blob
     const timestamp = Date.now();
-    const filename = `${timestamp}-${file.name}`;
-    const filepath = path.join(uploadsDir, filename);
+    const filename = `videos/${timestamp}-${file.name}`;
 
-    // Save file
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-    await writeFile(filepath, buffer);
+    const blob = await put(filename, file, {
+      access: 'public',
+      token: process.env.BLOB_READ_WRITE_TOKEN,
+    });
 
     // Create video record in database
     const video = await db.video.create({
       data: {
         title,
         description: description || null,
-        filename,
-        url: `/uploads/videos/${filename}`,
+        filename: `${timestamp}-${file.name}`,
+        url: blob.url,
         category: category || null,
         isFeatured,
         isActive: true

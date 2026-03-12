@@ -1,7 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { writeFile, mkdir } from 'fs/promises';
-import path from 'path';
+import { put } from '@vercel/blob';
 
 // GET - List all advertisements
 export async function GET() {
@@ -22,6 +21,18 @@ export async function GET() {
 
 // POST - Upload a new advertisement
 export async function POST(request: NextRequest) {
+  // Add CORS headers
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  };
+
+  // Handle preflight request
+  if (request.method === 'OPTIONS') {
+    return NextResponse.json({}, { headers: corsHeaders });
+  }
+
   try {
     const formData = await request.formData();
     const file = formData.get('file') as File;
@@ -30,10 +41,25 @@ export async function POST(request: NextRequest) {
     const company = formData.get('company') as string;
     const priority = parseInt(formData.get('priority') as string) || 0;
 
+    console.log('Received ad upload request:', {
+      fileName: file?.name,
+      fileSize: file?.size,
+      fileType: file?.type
+    });
+
     if (!file) {
       return NextResponse.json(
         { error: 'File is required' },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
+      );
+    }
+
+    // Client-side file size check (4.5MB for Vercel free tier)
+    const maxSize = 4.5 * 1024 * 1024; // 4.5MB for Vercel free tier
+    if (file.size > maxSize) {
+      return NextResponse.json(
+        { error: `File size exceeds 4.5MB Vercel limit. Your file is ${(file.size / (1024 * 1024)).toFixed(2)}MB. Please use a smaller file or upgrade to Vercel Pro.` },
+        { status: 413, headers: corsHeaders }
       );
     }
 
@@ -44,7 +70,7 @@ export async function POST(request: NextRequest) {
     if (!fileType) {
       return NextResponse.json(
         { error: 'File must be an image or video' },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       );
     }
 
@@ -53,32 +79,22 @@ export async function POST(request: NextRequest) {
     if (existingAds >= 7) {
       return NextResponse.json(
         { error: 'Billboard can only contain up to 7 items. Please delete some first.' },
-        { status: 400 }
+        { status: 400, headers: corsHeaders }
       );
     }
 
-    // Check file size (max 10MB)
-    const maxSize = 10 * 1024 * 1024; // 10MB in bytes
-    if (file.size > maxSize) {
-      return NextResponse.json(
-        { error: `File size exceeds 10MB limit. Your file is ${(file.size / (1024 * 1024)).toFixed(2)}MB` },
-        { status: 400 }
-      );
-    }
+    console.log('Uploading file to Vercel Blob...');
 
-    // Create uploads directory if it doesn't exist
-    const uploadsDir = path.join(process.cwd(), 'public', 'uploads', 'ads');
-    await mkdir(uploadsDir, { recursive: true });
-
-    // Generate unique filename
+    // Upload to Vercel Blob
     const timestamp = Date.now();
-    const filename = `${timestamp}-${file.name}`;
-    const filepath = path.join(uploadsDir, filename);
+    const filename = `ads/${timestamp}-${file.name}`;
 
-    // Save file
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    await writeFile(filepath, buffer);
+    const blob = await put(filename, file, {
+      access: 'public',
+      token: process.env.BLOB_READ_WRITE_TOKEN,
+    });
+
+    console.log('File uploaded to Blob:', blob.url);
 
     // Generate default title if not provided
     const adTitle = title || `Advertisement ${existingAds + 1}`;
@@ -92,8 +108,8 @@ export async function POST(request: NextRequest) {
       data: {
         title: adTitle,
         description: description || null,
-        filename,
-        url: `/uploads/ads/${filename}`,
+        filename: `${timestamp}-${file.name}`,
+        url: blob.url,
         company: company || null,
         startDate: farPast,
         endDate: farFuture,
@@ -103,15 +119,17 @@ export async function POST(request: NextRequest) {
       }
     });
 
+    console.log('Ad created in database:', ad.id);
+
     return NextResponse.json({
       success: true,
       ad
-    });
+    }, { headers: corsHeaders });
   } catch (error: any) {
     console.error('Upload error:', error);
     return NextResponse.json(
       { error: 'Failed to upload advertisement', details: error.message || String(error) },
-      { status: 500 }
+      { status: 500, headers: corsHeaders }
     );
   }
 }
